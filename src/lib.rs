@@ -5,6 +5,7 @@
 //! launch-argument assembly, and localization-file parsing.
 
 pub mod ffi;
+pub mod gma;
 pub mod launch;
 pub mod localize;
 pub mod renderer;
