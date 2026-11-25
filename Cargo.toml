@@ -1,0 +1,19 @@
+[package]
+name = "opengdroid"
+version = "0.1.0"
+edition = "2021"
+description = "Open-source Rust reimplementation of the GDroid Android launcher"
+license = "MIT"
+
+[lib]
+name = "opengdroid"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

@@ -1,0 +1,32 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+
+# Cargo lock is committed for applications, ignored for libraries.
+# This crate builds a binary APK, so Cargo.lock stays tracked.
+
+# Android / NDK build outputs
+*.so
+!src/**/*.so
+/out/
+/app/build/
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# Compiled smoke-test binaries (sources are tracked, binaries are not)
+tests/device_smoke_arm64
+tests/device_smoke_armv7
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local scratch
+/scratch/
+*.log
