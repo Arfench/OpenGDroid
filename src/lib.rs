@@ -7,6 +7,7 @@
 pub mod ffi;
 pub mod launch;
 pub mod localize;
+pub mod renderer;
 pub mod storage;
 
 /// Version string reported to the Android layer.
