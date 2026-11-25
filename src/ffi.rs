@@ -7,8 +7,10 @@
 use std::ffi::{c_char, CStr, CString};
 use std::path::Path;
 
+use crate::gma;
 use crate::launch::{self, Extras, Mode, Renderer};
 use crate::localize;
+use crate::renderer;
 use crate::storage;
 
 /// Returns the crate version as a static NUL-terminated string.
@@ -130,6 +132,132 @@ pub unsafe extern "C" fn opengdroid_string_free(ptr: *mut c_char) {
     if !ptr.is_null() {
         drop(unsafe { CString::from_raw(ptr) });
     }
+}
+
+/// Returns the renderer decision for this launch as a JSON object.
+///
+/// Shape: `{"vulkan":bool,"notice":string|null}`. The marker directory is
+/// `files_dir/renderer-v1`; `device_version` is
+/// `android.hardware.vulkan.version` (`4198400` == Vulkan 1.1), and
+/// `requested` is non-zero when the user asked for Vulkan.
+///
+/// Side effect: may write the fallback marker, exactly like the original.
+///
+/// # Safety
+/// `files_dir` must be null or a valid NUL-terminated C string.
+#[no_mangle]
+pub unsafe extern "C" fn opengdroid_renderer_launch(
+    files_dir: *const c_char,
+    requested: i32,
+    device_version: i32,
+) -> *mut c_char {
+    let Some(dir) = (unsafe { cstr_to_str(files_dir) }) else {
+        return std::ptr::null_mut();
+    };
+    let launch = renderer::prepare_launch(Path::new(dir), requested != 0, device_version);
+    let notice = match &launch.notice {
+        Some(n) => format!("\"{}\"", json_escape(n)),
+        None => "null".to_owned(),
+    };
+    to_c_string(&format!(
+        "{{\"vulkan\":{},\"notice\":{}}}",
+        launch.vulkan, notice
+    ))
+}
+
+/// Clears the renderer fallback marker so the user can retry Vulkan.
+///
+/// Returns 0 on success, `-1` on a null argument, `-2` on an I/O error.
+///
+/// # Safety
+/// `files_dir` must be null or a valid NUL-terminated C string.
+#[no_mangle]
+pub unsafe extern "C" fn opengdroid_renderer_clear(files_dir: *const c_char) -> i32 {
+    let Some(dir) = (unsafe { cstr_to_str(files_dir) }) else {
+        return -1;
+    };
+    match renderer::clear_fallback(Path::new(dir)) {
+        Ok(()) => 0,
+        Err(_) => -2,
+    }
+}
+
+/// Counts the entries in a GMA archive held in memory.
+///
+/// Returns the number of files, or `-1` when the payload is not a plain GMA.
+///
+/// # Safety
+/// `bytes` must point to at least `len` readable bytes, or be null with `len` 0.
+#[no_mangle]
+pub unsafe extern "C" fn opengdroid_gma_count(bytes: *const u8, len: usize) -> i64 {
+    let Some(slice) = (unsafe { slice_from_raw(bytes, len) }) else {
+        return -1;
+    };
+    match gma::parse(slice) {
+        Ok(archive) => archive.entries.len() as i64,
+        Err(_) => -1,
+    }
+}
+
+/// Returns a GMA archive's metadata as a JSON object, or null on parse failure.
+///
+/// Shape: `{"version":u8,"title":string,"author":string,"description":string,
+/// "addon_version":u32,"files":u32,"allowed":u32,"rejected":u32}`.
+///
+/// # Safety
+/// `bytes` must point to at least `len` readable bytes, or be null with `len` 0.
+#[no_mangle]
+pub unsafe extern "C" fn opengdroid_gma_info(bytes: *const u8, len: usize) -> *mut c_char {
+    let Some(slice) = (unsafe { slice_from_raw(bytes, len) }) else {
+        return std::ptr::null_mut();
+    };
+    let Ok(archive) = gma::parse(slice) else {
+        return std::ptr::null_mut();
+    };
+    let (allowed, rejected) = gma::partition_paths(&archive);
+    let json = format!(
+        "{{\"version\":{},\"title\":\"{}\",\"author\":\"{}\",\"description\":\"{}\",\"addon_version\":{},\"files\":{},\"allowed\":{},\"rejected\":{}}}",
+        archive.version,
+        json_escape(&archive.title),
+        json_escape(&archive.author),
+        json_escape(&archive.description),
+        archive.addon_version,
+        archive.entries.len(),
+        allowed.len(),
+        rejected.len()
+    );
+    to_c_string(&json)
+}
+
+/// Checks whether a single path is allowed by the addon content whitelist.
+///
+/// Returns 1 when allowed, 0 when rejected, `-1` on a null argument.
+///
+/// # Safety
+/// `path` must be null or a valid NUL-terminated C string.
+#[no_mangle]
+pub unsafe extern "C" fn opengdroid_gma_path_allowed(path: *const c_char) -> i32 {
+    let Some(path) = (unsafe { cstr_to_str(path) }) else {
+        return -1;
+    };
+    i32::from(gma::is_allowed_path(path))
+}
+
+/// Escapes a string for embedding in JSON.
+fn json_escape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for c in value.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// # Safety
