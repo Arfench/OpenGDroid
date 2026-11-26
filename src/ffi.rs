@@ -7,6 +7,7 @@
 use std::ffi::{c_char, CStr, CString};
 use std::path::Path;
 
+use crate::api;
 use crate::gma;
 use crate::launch::{self, Extras, Mode, Renderer};
 use crate::localize;
@@ -154,14 +155,10 @@ pub unsafe extern "C" fn opengdroid_renderer_launch(
     let Some(dir) = (unsafe { cstr_to_str(files_dir) }) else {
         return std::ptr::null_mut();
     };
-    let launch = renderer::prepare_launch(Path::new(dir), requested != 0, device_version);
-    let notice = match &launch.notice {
-        Some(n) => format!("\"{}\"", json_escape(n)),
-        None => "null".to_owned(),
-    };
-    to_c_string(&format!(
-        "{{\"vulkan\":{},\"notice\":{}}}",
-        launch.vulkan, notice
+    to_c_string(&api::renderer_launch_json(
+        Path::new(dir),
+        requested != 0,
+        device_version,
     ))
 }
 
@@ -211,22 +208,10 @@ pub unsafe extern "C" fn opengdroid_gma_info(bytes: *const u8, len: usize) -> *m
     let Some(slice) = (unsafe { slice_from_raw(bytes, len) }) else {
         return std::ptr::null_mut();
     };
-    let Ok(archive) = gma::parse(slice) else {
-        return std::ptr::null_mut();
-    };
-    let (allowed, rejected) = gma::partition_paths(&archive);
-    let json = format!(
-        "{{\"version\":{},\"title\":\"{}\",\"author\":\"{}\",\"description\":\"{}\",\"addon_version\":{},\"files\":{},\"allowed\":{},\"rejected\":{}}}",
-        archive.version,
-        json_escape(&archive.title),
-        json_escape(&archive.author),
-        json_escape(&archive.description),
-        archive.addon_version,
-        archive.entries.len(),
-        allowed.len(),
-        rejected.len()
-    );
-    to_c_string(&json)
+    match api::gma_info_json(slice) {
+        Some(json) => to_c_string(&json),
+        None => std::ptr::null_mut(),
+    }
 }
 
 /// Checks whether a single path is allowed by the addon content whitelist.
@@ -241,23 +226,6 @@ pub unsafe extern "C" fn opengdroid_gma_path_allowed(path: *const c_char) -> i32
         return -1;
     };
     i32::from(gma::is_allowed_path(path))
-}
-
-/// Escapes a string for embedding in JSON.
-fn json_escape(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for c in value.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out
 }
 
 /// # Safety

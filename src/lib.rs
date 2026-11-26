@@ -4,8 +4,10 @@
 //! (and later a full APK) builds on: storage path resolution, Source engine
 //! launch-argument assembly, and localization-file parsing.
 
+pub mod api;
 pub mod ffi;
 pub mod gma;
+pub mod jni_bridge;
 pub mod launch;
 pub mod localize;
 pub mod renderer;

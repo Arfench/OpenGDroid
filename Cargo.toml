@@ -10,6 +10,7 @@ name = "opengdroid"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+jni = "0.21"
 
 [profile.release]
 opt-level = "z"
