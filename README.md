@@ -122,27 +122,34 @@ Content layout matches GDroid, so an existing install keeps working:
 
 ### Done
 
-- Rust core: `storage`, `launch`, `localize` (UTF-16LE fixed), `renderer`, `gma` — 41 host tests, clippy clean with `-D warnings`.
+- Rust core: `storage`, `launch`, `localize` (UTF-16LE fixed), `renderer`, `gma` — 48 host tests, clippy clean with `-D warnings`.
 - Android cross-build for `aarch64-linux-android` and `armv7-linux-androideabi` via NDK r27c.
 - C ABI with 11 exported functions, verified on SM-S711B (Android 14, arm64-v8a): all assertions pass.
+- JNI bridge (`src/jni_bridge.rs` → `com.opengdroid.core.Core`), verified on device via `app_process`.
+- Minimal Android app built and installed: shows content root, engine command line, renderer decision and addon counts; writes `android_settings.cfg` into the real game folder.
+- `storage` prefers a directory that actually contains a game (`garrysmod/gameinfo.txt`) over an empty `srceng` stub, so `Download/Garry's Mod` is found.
 - `renderer`: Vulkan/GLES selection with crash-marker fallback matches the original protocol.
 - `gma`: addon archive parsing plus content whitelist (engine libraries and traversal rejected).
 
 ### Not done
 
-- Android front-end / APK: no Gradle project, no JNI bridge, no UI. The library is only reachable from C so far.
-- JNI wrapper layer: C ABI exists, Java/Kotlin bindings do not.
+- The app does not start the engine yet — it reports the resolved command line instead of launching it.
+- No settings UI for launch arguments, resolution or heap size (values are fixed in `MainActivity`).
+- No localization UI: `localize` is exposed and tested, but no screen reads the tables yet.
 - `armv7` build not exercised on hardware — only the arm64 `.so` was loaded on a device.
-- No packaging of engine content, no Steam integration beyond keeping the original boundary explicit.
+- No Gradle project: the APK is assembled by `android/build.sh` (aapt2 + d8 + apksigner).
+- No addon management UI; `gma` is reachable only through the native API.
+- Steam integration stays an explicit boundary, as in the original.
 
 ### Plans
 
-1. JNI bridge (`jni` crate) exposing the C ABI to Kotlin; keep strings UTF-8 at the boundary.
-2. Minimal Android app: launcher screen, settings for launch arguments and renderer, start the engine.
-3. Wire `localize` into the UI so translated strings show up (the original bug this project fixes).
-4. Addon management UI backed by `gma` parsing.
-5. CI: `cargo test` + clippy on host, cross-build for both Android targets, artifact upload.
+1. Start the engine from the app: pass the built command line to the engine binary and handle its exit status.
+2. Settings screen: launch arguments, resolution, heap size, renderer — persisted and fed into `buildArgs`.
+3. Localization UI backed by `localize`, so translated strings appear (the original bug this project fixes).
+4. Addon management UI backed by `gma` parsing (list, validate, enable/disable).
+5. CI: `cargo test` + clippy on host, cross-build for both Android targets, APK artifact.
 6. Verify the `armv7` `.so` on a 32-bit device or emulator.
+7. Replace `build.sh` with a Gradle project once the app outgrows the manual pipeline.
 
 ## License
 

@@ -20,6 +20,13 @@
 tests/device_smoke_arm64
 tests/device_smoke_armv7
 
+# Android build intermediates and local captures
+android/build/
+android/classes/
+android/classes.dex
+android/screen*.png
+android/opengdroid.jks
+
 # IDE / OS
 .idea/
 .vscode/
