@@ -41,11 +41,15 @@ src/
   storage.rs    external-storage path resolution
   launch.rs     engine argument + config generation
   localize.rs   localization parsing with encoding detection
+  renderer.rs   Vulkan/GLES selection with crash-marker fallback
+  gma.rs        Garry's Mod addon archive parsing + content whitelist
   ffi.rs        C ABI surface for the Android layer
 .cargo/
   config.toml   Android cross-compilation (NDK clang)
 tests/
-  device_smoke.c  on-device smoke test for the built .so
+  device_smoke.c     on-device smoke test for the built .so
+  device_real_file.c parses a real UTF-16LE table from the device
+  device_features.c  renderer selection + GMA parsing on device
 ```
 
 ## C ABI
@@ -60,6 +64,11 @@ through JNI or directly from C:
 | `opengdroid_build_args(game_dir, w, h, fullscreen, heap_mb, renderer, extras)` | Engine command line, caller frees |
 | `opengdroid_localization_count(bytes, len)` | Number of entries, `-1` on decode failure |
 | `opengdroid_localization_lookup(bytes, len, key)` | Value for key, caller frees, null if absent |
+| `opengdroid_renderer_launch(files_dir, requested, device_version)` | JSON `{"vulkan":bool,"notice":...}`, caller frees |
+| `opengdroid_renderer_clear(files_dir)` | Clears the fallback marker: `0` ok, `-1` bad arg, `-2` I/O |
+| `opengdroid_gma_count(bytes, len)` | Files in a `.gma`, `-1` if not a plain archive |
+| `opengdroid_gma_info(bytes, len)` | JSON metadata incl. allowed/rejected counts |
+| `opengdroid_gma_path_allowed(path)` | `1` allowed, `0` rejected, `-1` bad arg |
 | `opengdroid_string_free(ptr)` | Releases any string returned above |
 
 All strings cross the boundary as NUL-terminated UTF-8. `renderer` is `1` for Vulkan, anything
@@ -108,6 +117,32 @@ Content layout matches GDroid, so an existing install keeps working:
   `/sdcard/Download/Garry's Mod`.
 - Launch arguments are read from the `launch_args` setting and passed through verbatim, so
   `+map`, `+connect` and `-sourcevr_native_vulkan` behave as before.
+
+## Roadmap
+
+### Done
+
+- Rust core: `storage`, `launch`, `localize` (UTF-16LE fixed), `renderer`, `gma` — 41 host tests, clippy clean with `-D warnings`.
+- Android cross-build for `aarch64-linux-android` and `armv7-linux-androideabi` via NDK r27c.
+- C ABI with 11 exported functions, verified on SM-S711B (Android 14, arm64-v8a): all assertions pass.
+- `renderer`: Vulkan/GLES selection with crash-marker fallback matches the original protocol.
+- `gma`: addon archive parsing plus content whitelist (engine libraries and traversal rejected).
+
+### Not done
+
+- Android front-end / APK: no Gradle project, no JNI bridge, no UI. The library is only reachable from C so far.
+- JNI wrapper layer: C ABI exists, Java/Kotlin bindings do not.
+- `armv7` build not exercised on hardware — only the arm64 `.so` was loaded on a device.
+- No packaging of engine content, no Steam integration beyond keeping the original boundary explicit.
+
+### Plans
+
+1. JNI bridge (`jni` crate) exposing the C ABI to Kotlin; keep strings UTF-8 at the boundary.
+2. Minimal Android app: launcher screen, settings for launch arguments and renderer, start the engine.
+3. Wire `localize` into the UI so translated strings show up (the original bug this project fixes).
+4. Addon management UI backed by `gma` parsing.
+5. CI: `cargo test` + clippy on host, cross-build for both Android targets, artifact upload.
+6. Verify the `armv7` `.so` on a 32-bit device or emulator.
 
 ## License
 
