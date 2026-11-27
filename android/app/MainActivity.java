@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.pm.FeatureInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.ApplicationInfo;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
@@ -112,6 +113,8 @@ public final class MainActivity extends Activity {
                 true, 1024, 0, "");
         say("Команда: " + cmdline);
 
+        sayLaunchPlan(sharedRoot, width, height);
+
         File addonDir = new File(sharedRoot, "garrysmod/addons");
         File[] entries = addonDir.listFiles();
         int gmaCount = 0;
@@ -129,6 +132,128 @@ public final class MainActivity extends Activity {
         say("Аддоны: .gma " + gmaCount + ", workshop-каталогов " + workshopCount);
 
         render();
+    }
+
+    /** Builds the full launch plan and reports readiness plus the environment. */
+    private void sayLaunchPlan(String sharedRoot, int width, int height) {
+        String nativeLibDir = getApplicationInfo().nativeLibraryDir;
+        String engineLibDir = engineLibraryDir();
+        String candidates = engineLibDir == null
+                ? nativeLibDir
+                : nativeLibDir + ":" + engineLibDir;
+        if (engineLibDir != null) {
+            say("Библиотеки движка: " + engineLibDir + " (из установленного GDroid)");
+        } else {
+            say("Библиотеки движка: не найдены (GDroid не установлен)");
+        }
+
+        String userDir = new File(getFilesDir(), "user/garrysmod").getAbsolutePath();
+        String engineContent = new File(sharedRoot, "common").getAbsolutePath();
+        String runtimeVpk = new File(getFilesDir(), "runtime.zip").getAbsolutePath();
+        String cacheDir = getCacheDir().getAbsolutePath();
+
+        String json = Core.launchPlan(sharedRoot, "garrysmod", candidates, userDir,
+                engineContent, runtimeVpk, cacheDir, width, height, true, 1024, 0, "");
+
+        boolean ready = json != null && json.contains("\"ready\":true");
+        say("План запуска: " + (ready ? "готов" : "не готов"));
+
+        if (json == null) {
+            say("План запуска: ядро вернуло null");
+            return;
+        }
+        for (String blocker : jsonStrings(json, "blockers")) {
+            say("  блокер: " + blocker);
+        }
+        int missingEntry = jsonStrings(json, "missing_entry_libraries").size();
+        int missingEngine = jsonStrings(json, "missing_engine_libraries").size();
+        say("  нет библиотек входа: " + missingEntry
+                + ", движковых: " + missingEngine);
+        say("  env: " + jsonStrings(json, "env").size() + " переменных");
+
+        sayEngineProbe(json);
+    }
+
+    /** Loads the entry libraries for real and reports what the loader said. */
+    private void sayEngineProbe(String planJson) {
+        String dir = jsonString(planJson, "library_dir");
+        if (dir == null || dir.isEmpty()) {
+            say("Загрузка библиотек: каталог не определён");
+            return;
+        }
+
+        String json = Core.engineProbe(dir);
+        if (json == null) {
+            say("Загрузка библиотек: ядро вернуло null");
+            return;
+        }
+
+        boolean allLoaded = json.contains("\"all_loaded\":true");
+        boolean entrySymbol = json.contains("\"entry_symbol\":true");
+        say("Загрузка библиотек: " + (allLoaded ? "все загружены" : "есть ошибки")
+                + ", LauncherMainAndroid: " + (entrySymbol ? "найден" : "нет"));
+        for (String error : jsonStrings(json, "errors")) {
+            say("  ошибка загрузки: " + error);
+        }
+    }
+
+    /**
+     * Returns the native library directory of the original GDroid package.
+     *
+     * <p>The Source engine modules ship inside that APK, not in this one. Using
+     * them in place avoids copying ~150 MB and keeps a single copy on disk.
+     * Returns null when the package is absent.
+     */
+    private String engineLibraryDir() {
+        try {
+            return getPackageManager().getApplicationInfo("com.gmodvr.flat", 0).nativeLibraryDir;
+        } catch (PackageManager.NameNotFoundException e) {
+            return null;
+        }
+    }
+
+    /** Reads one string-valued JSON field; null when absent. */
+    private static String jsonString(String json, String field) {
+        String marker = "\"" + field + "\":\"";
+        int start = json.indexOf(marker);
+        if (start < 0) {
+            return null;
+        }
+        start += marker.length();
+        int end = json.indexOf('"', start);
+        if (end < 0) {
+            return null;
+        }
+        return json.substring(start, end);
+    }
+
+    /** Extracts the string items of one JSON array field; empty when absent. */
+    private static List<String> jsonStrings(String json, String field) {
+        List<String> out = new ArrayList<>();
+        int key = json.indexOf("\"" + field + "\":[");
+        if (key < 0) {
+            return out;
+        }
+        int start = json.indexOf('[', key) + 1;
+        int end = json.indexOf(']', start);
+        if (start <= 0 || end < start) {
+            return out;
+        }
+        String body = json.substring(start, end).trim();
+        if (body.isEmpty()) {
+            return out;
+        }
+        for (String part : body.split("\",\"")) {
+            String value = part;
+            if (value.startsWith("\"")) {
+                value = value.substring(1);
+            }
+            if (value.endsWith("\"")) {
+                value = value.substring(0, value.length() - 1);
+            }
+            out.add(value);
+        }
+        return out;
     }
 
     /** Reads android.hardware.vulkan.version from the platform feature list. */

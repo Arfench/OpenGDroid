@@ -14,8 +14,10 @@ use jni::sys::{jboolean, jint, jlong, jstring};
 use jni::JNIEnv;
 
 use crate::api;
+use crate::engine;
 use crate::gma;
 use crate::launch::{self, Extras, Mode, Renderer};
+use crate::launch_plan::{self, Request};
 use crate::localize;
 use crate::renderer;
 use crate::storage;
@@ -98,6 +100,70 @@ pub extern "system" fn Java_com_opengdroid_core_Core_buildArgs<'local>(
         &Extras::parse(&extras_raw),
     );
     to_jstring(&mut env, &args.join(" "))
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_opengdroid_core_Core_launchPlan<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    shared_root: JString<'local>,
+    game_id: JString<'local>,
+    native_lib_dir: JString<'local>,
+    user_dir: JString<'local>,
+    engine_content: JString<'local>,
+    runtime_vpk: JString<'local>,
+    cache_dir: JString<'local>,
+    width: jint,
+    height: jint,
+    fullscreen: jboolean,
+    heap_mb: jint,
+    renderer_id: jint,
+    extras: JString<'local>,
+) -> jstring {
+    let Some(shared_root) = read_string(&mut env, &shared_root) else {
+        return std::ptr::null_mut();
+    };
+    let game_id = read_string(&mut env, &game_id).unwrap_or_else(|| "garrysmod".to_owned());
+    let native_lib_dir = read_string(&mut env, &native_lib_dir).unwrap_or_default();
+    let user_dir = read_string(&mut env, &user_dir).unwrap_or_default();
+    let engine_content = read_string(&mut env, &engine_content).unwrap_or_default();
+    let runtime_vpk = read_string(&mut env, &runtime_vpk).unwrap_or_default();
+    let cache_dir = read_string(&mut env, &cache_dir).unwrap_or_default();
+    let extras_raw = read_string(&mut env, &extras).unwrap_or_default();
+
+    let request = Request {
+        shared_root: Path::new(&shared_root).to_path_buf(),
+        game_id,
+        library_candidates: launch_plan::library_candidates(&native_lib_dir),
+        user_dir: Path::new(&user_dir).to_path_buf(),
+        engine_content: Path::new(&engine_content).to_path_buf(),
+        runtime_vpk: Path::new(&runtime_vpk).to_path_buf(),
+        cache_dir: Path::new(&cache_dir).to_path_buf(),
+        mode: Mode::new(width.max(0) as u32, height.max(0) as u32, fullscreen != 0),
+        heap_mb: heap_mb.max(0) as u32,
+        renderer: if renderer_id == 1 {
+            Renderer::Vulkan
+        } else {
+            Renderer::OpenGlEs
+        },
+        extras: Extras::parse(&extras_raw),
+    };
+
+    let json = api::launch_plan_json(&launch_plan::plan(&request));
+    to_jstring(&mut env, &json)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_opengdroid_core_Core_engineProbe<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    library_dir: JString<'local>,
+) -> jstring {
+    let Some(dir) = read_string(&mut env, &library_dir) else {
+        return std::ptr::null_mut();
+    };
+    let json = api::engine_probe_json(&engine::probe(Path::new(&dir)));
+    to_jstring(&mut env, &json)
 }
 
 #[no_mangle]

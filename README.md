@@ -122,29 +122,32 @@ Content layout matches GDroid, so an existing install keeps working:
 
 ### Done
 
-- Rust core: `storage`, `launch`, `localize` (UTF-16LE fixed), `renderer`, `gma` — 48 host tests, clippy clean with `-D warnings`.
+- Rust core: `storage`, `launch`, `launch_plan`, `engine`, `localize` (UTF-16LE fixed), `renderer`, `gma` — 60 host tests, clippy clean with `-D warnings`.
 - Android cross-build for `aarch64-linux-android` and `armv7-linux-androideabi` via NDK r27c.
-- C ABI with 11 exported functions, verified on SM-S711B (Android 14, arm64-v8a): all assertions pass.
+- C ABI with 13 exported functions, verified on SM-S711B (Android 14, arm64-v8a): all assertions pass.
 - JNI bridge (`src/jni_bridge.rs` → `com.opengdroid.core.Core`), verified on device via `app_process`.
-- Minimal Android app built and installed: shows content root, engine command line, renderer decision and addon counts; writes `android_settings.cfg` into the real game folder.
+- Minimal Android app built and installed: shows content root, engine command line, renderer decision, addon counts and the launch plan; writes `android_settings.cfg` into the real game folder.
 - `storage` prefers a directory that actually contains a game (`garrysmod/gameinfo.txt`) over an empty `srceng` stub, so `Download/Garry's Mod` is found.
 - `renderer`: Vulkan/GLES selection with crash-marker fallback matches the original protocol.
 - `gma`: addon archive parsing plus content whitelist (engine libraries and traversal rejected).
+- `launch_plan`: the full contract the engine is started with — the fifteen environment variables the original launcher sets (`APP_DATA_PATH`, `APP_LIB_PATH`, `SOURCEVR_GAME`, `EXTRAS_VPK_PATH`, cache and TMPDIR variables), the argument vector, and a readiness check that names what is missing instead of failing silently.
+- `engine`: the entry libraries are actually loaded with `dlopen`, and bionic's first-missing-dependency errors are resolved by mapping the named dependency with `RTLD_GLOBAL` and retrying. Verified on device: both entry libraries load and `LauncherMainAndroid` is found.
 
 ### Not done
 
-- The app does not start the engine yet — it reports the resolved command line instead of launching it.
+- The app does not call `LauncherMainAndroid` yet — the symbol is located and reported, but the engine is not entered, because doing so takes over the process (SDL owns the surface and the main loop) and needs its own activity.
 - No settings UI for launch arguments, resolution or heap size (values are fixed in `MainActivity`).
 - No localization UI: `localize` is exposed and tested, but no screen reads the tables yet.
 - `armv7` build not exercised on hardware — only the arm64 `.so` was loaded on a device.
 - No Gradle project: the APK is assembled by `android/build.sh` (aapt2 + d8 + apksigner).
 - No addon management UI; `gma` is reachable only through the native API.
+- Engine libraries are used from the installed GDroid package rather than bundled; a standalone build needs its own copy of them.
 - Steam integration stays an explicit boundary, as in the original.
 
 ### Plans
 
-1. Start the engine from the app: pass the built command line to the engine binary and handle its exit status.
-2. Settings screen: launch arguments, resolution, heap size, renderer — persisted and fed into `buildArgs`.
+1. Enter the engine: a dedicated activity that loads the entry libraries, calls `LauncherMainAndroid` with the prepared `argv` and lets SDL own the surface.
+2. Settings screen: launch arguments, resolution, heap size, renderer — persisted and fed into the plan.
 3. Localization UI backed by `localize`, so translated strings appear (the original bug this project fixes).
 4. Addon management UI backed by `gma` parsing (list, validate, enable/disable).
 5. CI: `cargo test` + clippy on host, cross-build for both Android targets, APK artifact.

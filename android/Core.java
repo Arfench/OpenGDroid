@@ -58,4 +58,39 @@ public final class Core {
 
     /** 1 when the addon path is allowed, 0 when rejected, -1 on a bad argument. */
     public static native int gmaPathAllowed(String path);
+
+    /**
+     * Full launch plan as JSON: command line, environment and readiness.
+     *
+     * <p>Shape: {@code {"ready":bool,"game_installed":bool,"blockers":[string],
+     * "missing_entry_libraries":[string],"missing_engine_libraries":[string],
+     * "command":string,"args":[string],"env":[string]}}.
+     *
+     * @param rendererId 1 for Vulkan, anything else for OpenGL ES
+     */
+    public static native String launchPlan(
+            String sharedRoot,
+            String gameId,
+            String nativeLibDir,
+            String userDir,
+            String engineContent,
+            String runtimeVpk,
+            String cacheDir,
+            int width,
+            int height,
+            boolean fullscreen,
+            int heapMb,
+            int rendererId,
+            String extras);
+
+    /**
+     * Loads the engine entry libraries with {@code dlopen} and reports the outcome.
+     *
+     * <p>Shape: {@code {"all_loaded":bool,"entry_symbol":bool,"failed":[string],
+     * "errors":[string],"libraries":[{"name":string,"loaded":bool,
+     * "error":string|null,"entry_symbol":bool}]}}.
+     *
+     * <p>Libraries are unloaded again, so the call has no lasting effect.
+     */
+    public static native String engineProbe(String libraryDir);
 }

@@ -5,10 +5,12 @@
 //! launch-argument assembly, and localization-file parsing.
 
 pub mod api;
+pub mod engine;
 pub mod ffi;
 pub mod gma;
 pub mod jni_bridge;
 pub mod launch;
+pub mod launch_plan;
 pub mod localize;
 pub mod renderer;
 pub mod storage;

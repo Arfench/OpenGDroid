@@ -5,7 +5,9 @@
 
 use std::path::Path;
 
+use crate::engine::Probe;
 use crate::gma;
+use crate::launch_plan::{Plan, Readiness};
 use crate::renderer;
 
 /// Escapes a string for embedding in a JSON string literal.
@@ -58,6 +60,83 @@ pub fn gma_info_json(bytes: &[u8]) -> Option<String> {
     ))
 }
 
+/// Reports a launch plan as JSON: the command line, the environment and what
+/// still blocks execution.
+///
+/// Shape: `{"ready":bool,"game_installed":bool,"blockers":[string],
+/// "missing_entry_libraries":[string],"missing_engine_libraries":[string],
+/// "library_dir":string,"command":string,"args":[string],"env":[string]}`.
+pub fn launch_plan_json(plan: &Plan) -> String {
+    format!(
+        "{{\"ready\":{},\"game_installed\":{},\"blockers\":{},\"missing_entry_libraries\":{},\
+         \"missing_engine_libraries\":{},\"library_dir\":\"{}\",\"command\":\"{}\",\"args\":{},\"env\":{}}}",
+        plan.ready(),
+        plan.readiness.game_installed,
+        json_string_array(&plan.readiness.blockers()),
+        json_string_array(&plan.readiness.missing_entry_libraries),
+        json_string_array(&plan.readiness.missing_engine_libraries),
+        json_escape(&plan.library_dir.to_string_lossy()),
+        json_escape(&plan.command_line()),
+        json_string_array(&plan.args),
+        json_string_array(&plan.env_pairs())
+    )
+}
+
+/// Renders a slice of strings as a JSON array literal.
+pub fn json_string_array(items: &[String]) -> String {
+    let inner: Vec<String> = items
+        .iter()
+        .map(|item| format!("\"{}\"", json_escape(item)))
+        .collect();
+    format!("[{}]", inner.join(","))
+}
+
+/// Reports readiness alone, for callers that only need the go/no-go decision.
+///
+/// Shape: `{"ready":bool,"blockers":[string]}`.
+pub fn readiness_json(readiness: &Readiness) -> String {
+    format!(
+        "{{\"ready\":{},\"blockers\":{}}}",
+        readiness.ready(),
+        json_string_array(&readiness.blockers())
+    )
+}
+
+/// Reports an engine library probe as JSON.
+///
+/// Shape: `{"all_loaded":bool,"entry_symbol":bool,"failed":[string],
+/// "errors":[string],"libraries":[{"name":string,"loaded":bool,
+/// "error":string|null,"entry_symbol":bool}]}`.
+pub fn engine_probe_json(probe: &Probe) -> String {
+    let libraries: Vec<String> = probe
+        .libraries
+        .iter()
+        .map(|lib| {
+            let error = match &lib.error {
+                Some(e) => format!("\"{}\"", json_escape(e)),
+                None => "null".to_owned(),
+            };
+            format!(
+                "{{\"name\":\"{}\",\"loaded\":{},\"error\":{},\"entry_symbol\":{}}}",
+                json_escape(&lib.name),
+                lib.loaded,
+                error,
+                lib.has_entry_symbol
+            )
+        })
+        .collect();
+
+    format!(
+        "{{\"all_loaded\":{},\"entry_symbol\":{},\"failed\":{},\"errors\":{},\"loaded\":{},\"libraries\":[{}]}}",
+        probe.all_loaded(),
+        probe.entry_symbol_found(),
+        json_string_array(&probe.failed()),
+        json_string_array(&probe.errors()),
+        json_string_array(&probe.loaded),
+        libraries.join(",")
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -82,5 +161,47 @@ mod tests {
         assert!(json.starts_with('{') && json.ends_with('}'));
         assert!(json.contains("\"vulkan\":false"));
         assert!(json.contains("\"notice\":null"));
+    }
+
+    #[test]
+    fn string_array_escapes_and_joins() {
+        assert_eq!(json_string_array(&[]), "[]");
+        assert_eq!(
+            json_string_array(&["a".to_owned(), "b\"c".to_owned()]),
+            "[\"a\",\"b\\\"c\"]"
+        );
+    }
+
+    #[test]
+    fn launch_plan_json_reports_blockers() {
+        use crate::launch::{Extras, Mode, Renderer};
+        use crate::launch_plan::{plan, Request};
+
+        let root = Path::new("/nonexistent-probe-root");
+        let request = Request {
+            shared_root: root.to_path_buf(),
+            game_id: "garrysmod".to_owned(),
+            library_candidates: vec![root.join("lib")],
+            user_dir: root.join("user/garrysmod"),
+            engine_content: root.join("common"),
+            runtime_vpk: root.join("runtime.zip"),
+            cache_dir: root.join("cache"),
+            mode: Mode::new(1280, 720, true),
+            heap_mb: 1024,
+            renderer: Renderer::OpenGlEs,
+            extras: Extras::parse(""),
+        };
+
+        let json = launch_plan_json(&plan(&request));
+        assert!(json.starts_with('{') && json.ends_with('}'));
+        assert!(json.contains("\"ready\":false"));
+        assert!(json.contains("\"game_installed\":false"));
+        assert!(json.contains("gameinfo.txt"));
+        assert!(json.contains("\"command\":\"-game "));
+        assert!(json.contains("SOURCEVR_GAME=garrysmod"));
+
+        let readiness = readiness_json(&plan(&request).readiness);
+        assert!(readiness.contains("\"ready\":false"));
+        assert!(readiness.contains("gameinfo.txt"));
     }
 }

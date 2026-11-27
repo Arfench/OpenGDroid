@@ -8,8 +8,10 @@ use std::ffi::{c_char, CStr, CString};
 use std::path::Path;
 
 use crate::api;
+use crate::engine;
 use crate::gma;
 use crate::launch::{self, Extras, Mode, Renderer};
+use crate::launch_plan::{self, Request};
 use crate::localize;
 use crate::renderer;
 use crate::storage;
@@ -75,6 +77,81 @@ pub unsafe extern "C" fn opengdroid_build_args(
         &Extras::parse(extras_raw),
     );
     to_c_string(&args.join(" "))
+}
+
+/// Builds the full launch plan and returns it as JSON.
+///
+/// Shape: `{"ready":bool,"game_installed":bool,"blockers":[string],
+/// "missing_entry_libraries":[string],"missing_engine_libraries":[string],
+/// "command":string,"args":[string],"env":[string]}`.
+///
+/// `renderer` is 1 for Vulkan and anything else for OpenGL ES.
+///
+/// # Safety
+/// All pointer arguments must be null or valid NUL-terminated C strings.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn opengdroid_launch_plan(
+    shared_root: *const c_char,
+    game_id: *const c_char,
+    native_lib_dir: *const c_char,
+    user_dir: *const c_char,
+    engine_content: *const c_char,
+    runtime_vpk: *const c_char,
+    cache_dir: *const c_char,
+    width: u32,
+    height: u32,
+    fullscreen: bool,
+    heap_mb: u32,
+    renderer: u32,
+    extras: *const c_char,
+) -> *mut c_char {
+    let Some(shared_root) = (unsafe { cstr_to_str(shared_root) }) else {
+        return std::ptr::null_mut();
+    };
+    let game_id = unsafe { cstr_to_str(game_id) }.unwrap_or("garrysmod");
+    let native_lib_dir = unsafe { cstr_to_str(native_lib_dir) }.unwrap_or_default();
+    let user_dir = unsafe { cstr_to_str(user_dir) }.unwrap_or_default();
+    let engine_content = unsafe { cstr_to_str(engine_content) }.unwrap_or_default();
+    let runtime_vpk = unsafe { cstr_to_str(runtime_vpk) }.unwrap_or_default();
+    let cache_dir = unsafe { cstr_to_str(cache_dir) }.unwrap_or_default();
+    let extras_raw = unsafe { cstr_to_str(extras) }.unwrap_or_default();
+
+    let request = Request {
+        shared_root: Path::new(shared_root).to_path_buf(),
+        game_id: game_id.to_owned(),
+        library_candidates: launch_plan::library_candidates(native_lib_dir),
+        user_dir: Path::new(user_dir).to_path_buf(),
+        engine_content: Path::new(engine_content).to_path_buf(),
+        runtime_vpk: Path::new(runtime_vpk).to_path_buf(),
+        cache_dir: Path::new(cache_dir).to_path_buf(),
+        mode: Mode::new(width, height, fullscreen),
+        heap_mb,
+        renderer: if renderer == 1 {
+            Renderer::Vulkan
+        } else {
+            Renderer::OpenGlEs
+        },
+        extras: Extras::parse(extras_raw),
+    };
+
+    to_c_string(&api::launch_plan_json(&launch_plan::plan(&request)))
+}
+
+/// Probes the engine entry libraries by actually loading them with `dlopen`.
+///
+/// Returns JSON: `{"all_loaded":bool,"entry_symbol":bool,"failed":[string],
+/// "errors":[string],"libraries":[...]}`. Libraries are unloaded again, so this
+/// has no side effect on the process.
+///
+/// # Safety
+/// `library_dir` must be null or a valid NUL-terminated C string.
+#[no_mangle]
+pub unsafe extern "C" fn opengdroid_engine_probe(library_dir: *const c_char) -> *mut c_char {
+    let Some(dir) = (unsafe { cstr_to_str(library_dir) }) else {
+        return std::ptr::null_mut();
+    };
+    to_c_string(&api::engine_probe_json(&engine::probe(Path::new(dir))))
 }
 
 /// Counts the localization entries in `bytes`.

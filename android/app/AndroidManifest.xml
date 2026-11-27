@@ -11,6 +11,16 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
 
+    <!--
+      The engine libraries (libSDL2/liblauncher and the Source modules) are not
+      bundled with this app. When the original GDroid is installed, its native
+      library directory is used instead, which needs package visibility.
+    -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <queries>
+        <package android:name="com.gmodvr.flat" />
+    </queries>
+
     <application
         android:label="OpenGDroid"
         android:extractNativeLibs="true"
